@@ -1,0 +1,44 @@
+# Function to extract Plan of Treatment section
+def extract_plan_of_treatment(section):
+    plan_data = {}
+    
+    # Extract basic component data
+    for child in section:
+        tag_base = child.tag.split('}')[-1].upper()
+        if tag_base == 'TITLE':
+            plan_data["TITLE"] = child.text
+        elif tag_base == 'TEMPLATEID':
+            index = 1
+            while f'{tag_base}_ROOT_{index}' in plan_data:
+                index += 1
+            for attr, value in child.attrib.items():
+                plan_data[f"{tag_base}_{attr.upper()}_{index}"] = value
+        else:
+            plan_data.update({f"{tag_base}_{k.upper()}": v for k, v in child.attrib.items()})
+    
+    # Extract HTML tables
+    html_tables = section.findall('.//hl7:text//hl7:table', namespaces)
+    for html_table_index, html_table in enumerate(html_tables, start=1):
+        table_data = []
+        headers = [th.text for th in html_table.findall('.//hl7:thead//hl7:tr//hl7:th', namespaces)]
+        for row in html_table.findall('.//hl7:tbody//hl7:tr', namespaces):
+            row_data = [td.text for td in row.findall('hl7:td', namespaces)]
+            table_data.append(row_data)
+        df_html_table = pd.DataFrame(table_data, columns=headers)
+        csv_file_path_html = f'G:/samanth473_drive/Parse/Result/Plan_of_Treatment_Table_{html_table_index}_{current_time}.csv'
+        df_html_table.to_csv(csv_file_path_html, index=False)
+        print(f"Saved HTML table for Plan of Treatment to {csv_file_path_html}")
+
+    return plan_data
+
+# Extract Plan of Treatment Section
+components = root.findall('.//hl7:structuredBody/hl7:component', namespaces)
+for component_index, component in enumerate(components, start=1):
+    section = component.find('.//hl7:section', namespaces)
+    title = section.find('.//hl7:title', namespaces)
+    if title is not None and title.text == 'Plan of Treatment':
+        plan_data = extract_plan_of_treatment(section)
+        df_plan = pd.DataFrame([plan_data])
+        csv_file_path_plan = f'G:/samanth473_drive/Parse/Result/Plan_of_Treatment_{current_time}.csv'
+        df_plan.to_csv(csv_file_path_plan, index=False)
+        print(f"Saved Plan of Treatment component to {csv_file_path_plan}")
