@@ -1,8 +1,9 @@
 import xml.etree.ElementTree as ET
 import pandas as pd
 from datetime import datetime
-import os
+from tabulate import tabulate
 import pyodbc
+import os
 
 # Define the file path
 file_path = 'G:/samanth473_drive/CDP/CDA-phcaserpt-1.3.0-CDA-phcaserpt-1.3.1/examples/samples/CDAR2_IG_PHCASERPT_R2_STU3.1_SAMPLE.xml'
@@ -14,54 +15,42 @@ file_name = os.path.basename(file_path)
 tree = ET.parse(file_path)
 root = tree.getroot()
 
-# Define the namespace map
-namespaces = {
-    'voc': 'http://www.lantanagroup.com/voc',
-    'hl7': 'urn:hl7-org:v3',
-    'sdtc': 'urn:hl7-org:sdtc',
-    'xsi': 'http://www.w3.org/2001/XMLSchema-instance'
-}
+# Define the namespace
+ns = {'n1': 'urn:hl7-org:v3'}
 
-# Extract the relatedDocument section
-related_document = root.find('.//hl7:relatedDocument', namespaces)
-type_code = related_document.attrib.get('typeCode') if related_document is not None else None
+# Find the "Encounters" section
+encounters_section = root.find(".//n1:section[n1:title='Encounters']", ns)
 
-parent_document = related_document.find('.//hl7:parentDocument', namespaces)
+# Extract encounter data
+encounter_data = []
+source = "Encounters"
+insert_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-doc_id = parent_document.find('.//hl7:id', namespaces)
-doc_id_root = doc_id.attrib.get('root') if doc_id is not None else None
-doc_id_extension = doc_id.attrib.get('extension') if doc_id is not None else None
+# Function to extract text or return empty string if not found
+def get_text_or_default(element, xpath, ns, default=""):
+    found = element.find(xpath, ns)
+    return found.text if found is not None else default
 
-set_id = parent_document.find('.//hl7:setId', namespaces)
-set_id_root = set_id.attrib.get('root') if set_id is not None else None
-set_id_extension = set_id.attrib.get('extension') if set_id is not None else None
+# Loop through each tr in the Encounters section
+for tr in encounters_section.findall(".//n1:tr", ns):
+    tds = tr.findall("n1:td", ns)
+    if len(tds) == 3 and tds[2].find("n1:list", ns) is not None:
+        encounter = get_text_or_default(tds[0], ".", ns)
+        date = get_text_or_default(tds[1], ".", ns)
+        location = get_text_or_default(tds[2], "n1:list/n1:item/n1:content", ns)
+        encounter_data.append([encounter, date, location, source, file_name, insert_datetime])
 
-version_number = parent_document.find('.//hl7:versionNumber', namespaces)
-version_value = version_number.attrib.get('value') if version_number is not None else None
+# Create DataFrame
+encounter_df = pd.DataFrame(encounter_data, columns=["ENCOUNTER", "ENCOUNTER_DATE", "ENCOUNTER_LOCATION", "SOURCE", "FILE_NAME", "INSERT_DATETIME"])
 
-# Create a dictionary for the relatedDocument data
-related_document_data = {
-    "RELATED_DOC_TYPE_CODE": type_code,
-    "RELATED_DOC_ID_ROOT": doc_id_root,
-    "RELATED_DOC_ID_EXTENSION": doc_id_extension,
-    "RELATED_DOC_SET_ID_ROOT": set_id_root,
-    "RELATED_DOC_SET_ID_EXTENSION": set_id_extension,
-    "RELATED_DOC_VERSION_NUMBER": version_value,
-    "FILE_NAME": file_name,
-    "INSERT_DATETIME": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-}
-
-# Create a DataFrame for the relatedDocument section
-df_related_document = pd.DataFrame([related_document_data])
-
-# Print the DataFrame
-print(df_related_document)
+# Print DataFrame as table
+print(tabulate(encounter_df, headers='keys', tablefmt='psql'))
 
 # Define SQL Server connection details
 server = 'Samanth'
 database = 'ClinicalDocument'
 schema = 'cdg'
-table_name = 'RelatedDocument'
+table_name = 'Encounters'
 
 # Establish connection to SQL Server
 conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={database};Trusted_Connection=yes;')
@@ -90,12 +79,10 @@ IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES
 BEGIN
     CREATE TABLE [{schema}].[{table_name}] (
         [ID] INT IDENTITY(1,1) PRIMARY KEY,
-        [RELATED_DOC_TYPE_CODE] NVARCHAR(MAX),
-        [RELATED_DOC_ID_ROOT] NVARCHAR(MAX),
-        [RELATED_DOC_ID_EXTENSION] NVARCHAR(MAX),
-        [RELATED_DOC_SET_ID_ROOT] NVARCHAR(MAX),
-        [RELATED_DOC_SET_ID_EXTENSION] NVARCHAR(MAX),
-        [RELATED_DOC_VERSION_NUMBER] NVARCHAR(MAX),
+        [ENCOUNTER] NVARCHAR(MAX),
+        [ENCOUNTER_DATE] NVARCHAR(MAX),
+        [ENCOUNTER_LOCATION] NVARCHAR(MAX),
+        [SOURCE] NVARCHAR(MAX),
         [FILE_NAME] NVARCHAR(MAX),
         [INSERT_DATETIME] NVARCHAR(MAX)
     )
@@ -103,7 +90,7 @@ END
 """)
 
 # Ensure all columns from DataFrame are present in the table
-add_missing_columns(cursor, schema, table_name, df_related_document.columns)
+add_missing_columns(cursor, schema, table_name, encounter_df.columns)
 
 # Truncate the table if it has rows
 cursor.execute(f"""
@@ -114,8 +101,8 @@ END
 """)
 
 # Dynamically generate the insert statement based on DataFrame columns
-columns_str = ', '.join(f'[{col}]' for col in df_related_document.columns)
-values_str = ', '.join('?' for _ in df_related_document.columns)
+columns_str = ', '.join(f'[{col}]' for col in encounter_df.columns)
+values_str = ', '.join('?' for _ in encounter_df.columns)
 
 insert_sql = f"""
 INSERT INTO [{schema}].[{table_name}] ({columns_str})
@@ -123,7 +110,7 @@ VALUES ({values_str})
 """
 
 # Insert DataFrame to SQL Server
-for index, row in df_related_document.iterrows():
+for index, row in encounter_df.iterrows():
     cursor.execute(insert_sql, tuple(row))
 
 # Commit the transaction

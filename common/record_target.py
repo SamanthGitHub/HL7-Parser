@@ -1,9 +1,17 @@
 import xml.etree.ElementTree as ET
 import pandas as pd
 from datetime import datetime
+import os
+import pyodbc
 
-# Load the XML from the specified file path
-tree = ET.parse('G:/samanth473_drive/CDP/CDA-phcaserpt-1.3.0-CDA-phcaserpt-1.3.1/examples/samples/CDAR2_IG_PHCASERPT_R2_STU3.1_SAMPLE.xml')
+# Define the file path
+file_path = 'G:/samanth473_drive/CDP/CDA-phcaserpt-1.3.0-CDA-phcaserpt-1.3.1/examples/samples/CDAR2_IG_PHCASERPT_R2_STU3.1_SAMPLE.xml'
+
+# Extract the file name from the file path
+file_name = os.path.basename(file_path)
+
+# Load and parse the XML file
+tree = ET.parse(file_path)
 root = tree.getroot()
 
 # Define the namespace map
@@ -28,7 +36,6 @@ language_communication = patient.findall('.//hl7:languageCommunication', namespa
 useable_period = addr.find('.//hl7:useablePeriod', namespaces)
 useable_period_type = useable_period.attrib.get('{http://www.w3.org/2001/XMLSchema-instance}type') if useable_period is not None else None
 low_value = useable_period.find('.//hl7:low', namespaces).attrib.get('value') if useable_period is not None else None
-
 
 # Extract patient name elements
 patient_name_data = {}
@@ -131,9 +138,12 @@ administrative_gender_code = patient.find('.//hl7:administrativeGenderCode', nam
 race_code = patient.find('.//hl7:raceCode', namespaces)
 ethnic_group_code = patient.find('.//hl7:ethnicGroupCode', namespaces)
 
+# Get the current date and time
+insert_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 # Create a dictionary for the recordTarget section data
 record_target_data = {
-    ## Patient IDs
+    # Patient IDs
     "PATIENT_ID_1_EXTENSION": patient_ids[0].attrib.get('extension') if len(patient_ids) > 0 else None,
     "PATIENT_ID_1_ROOT": patient_ids[0].attrib.get('root') if len(patient_ids) > 0 else None,
     "PATIENT_ID_2_EXTENSION": patient_ids[1].attrib.get('extension') if len(patient_ids) > 1 else None,
@@ -206,20 +216,141 @@ record_target_data = {
     "PROFICIENCY_LEVEL_CODE_SYSTEM": language_data.get('PROFICIENCY_LEVEL_CODE_SYSTEM'),
     "PROFICIENCY_LEVEL_CODE_SYSTEM_NAME": language_data.get('PROFICIENCY_LEVEL_CODE_SYSTEM_NAME'),
     "PROFICIENCY_DISPLAY_NAME": language_data.get('PROFICIENCY_DISPLAY_NAME'),
-    "PREFERENCE_IND": language_data.get('PREFERENCE_IND')
- }
+    "PREFERENCE_IND": language_data.get('PREFERENCE_IND'),
+    "FILE_NAME": file_name,
+    "INSERT_DATETIME": insert_datetime
+}
 
 # Create a DataFrame for the recordTarget section
 df_record_target = pd.DataFrame([record_target_data])
 
-# # Get the current date and time
-current_time = datetime.now().strftime("%Y%m%d%H%M%S")
-
-# # Define the file path for the recordTarget section with the timestamp
-csv_file_path_record_target = f'G:/samanth473_drive/Parse/Result/CDA_phcaserpt_{current_time}.csv'
-
-# # Save the DataFrame for the recordTarget section as a CSV file
-df_record_target.to_csv(csv_file_path_record_target, index=False)
-
-#Display the DataFrame for the recordTarget section
+# Print the DataFrame for the recordTarget section
 print(df_record_target)
+
+# Define SQL Server connection details
+server = 'Samanth'
+database = 'ClinicalDocument'
+schema = 'cdg'
+table_name = 'RecordTarget'
+
+# Establish connection to SQL Server
+conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={database};Trusted_Connection=yes;')
+cursor = conn.cursor()
+
+# Function to get the current columns of a table
+def get_current_columns(cursor, schema, table_name):
+    cursor.execute(f"""
+    SELECT COLUMN_NAME 
+    FROM INFORMATION_SCHEMA.COLUMNS 
+    WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table_name}'
+    """)
+    return [row.COLUMN_NAME for row in cursor.fetchall()]
+
+# Function to add missing columns to the table
+def add_missing_columns(cursor, schema, table_name, columns):
+    existing_columns = get_current_columns(cursor, schema, table_name)
+    for column in columns:
+        if column not in existing_columns:
+            cursor.execute(f"ALTER TABLE [{schema}].[{table_name}] ADD [{column}] NVARCHAR(MAX)")
+
+# Check if table exists, create if not
+cursor.execute(f"""
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES 
+               WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table_name}')
+BEGIN
+    CREATE TABLE [{schema}].[{table_name}] (
+        [ID] INT IDENTITY(1,1) PRIMARY KEY,
+        [PATIENT_ID_1_EXTENSION] NVARCHAR(MAX),
+        [PATIENT_ID_1_ROOT] NVARCHAR(MAX),
+        [PATIENT_ID_2_EXTENSION] NVARCHAR(MAX),
+        [PATIENT_ID_2_ROOT] NVARCHAR(MAX),
+        [ADDR_USE] NVARCHAR(MAX),
+        [STREET_ADDRESS_LINE] NVARCHAR(MAX),
+        [CITY] NVARCHAR(MAX),
+        [STATE] NVARCHAR(MAX),
+        [POSTAL_CODE] NVARCHAR(MAX),
+        [COUNTY] NVARCHAR(MAX),
+        [COUNTRY] NVARCHAR(MAX),
+        [USEABLE_PERIOD_TYPE] NVARCHAR(MAX),
+        [USEABLE_PERIOD_LOW] NVARCHAR(MAX),
+        [TELECOM_HP] NVARCHAR(MAX),
+        [TELECOM_WP] NVARCHAR(MAX),
+        [PATIENT_NAME_L_GIVEN] NVARCHAR(MAX),
+        [PATIENT_NAME_L_GIVEN_QUALIFIER] NVARCHAR(MAX),
+        [PATIENT_NAME_L_FAMILY] NVARCHAR(MAX),
+        [PATIENT_NAME_L_FAMILY_QUALIFIER] NVARCHAR(MAX),
+        [PATIENT_NAME_A_GIVEN] NVARCHAR(MAX),
+        [PATIENT_NAME_A_GIVEN_QUALIFIER] NVARCHAR(MAX),
+        [PATIENT_NAME_A_FAMILY] NVARCHAR(MAX),
+        [PATIENT_NAME_A_FAMILY_QUALIFIER] NVARCHAR(MAX),
+        [ADMINISTRATIVE_GENDER_CODE] NVARCHAR(MAX),
+        [ADMINISTRATIVE_GENDER_CODE_SYSTEM] NVARCHAR(MAX),
+        [BIRTH_TIME] NVARCHAR(MAX),
+        [DECEASED_IND] NVARCHAR(MAX),
+        [RACE_CODE] NVARCHAR(MAX),
+        [RACE_CODE_SYSTEM] NVARCHAR(MAX),
+        [RACE_CODE_SYSTEM_NAME] NVARCHAR(MAX),
+        [RACE_DISPLAY_NAME] NVARCHAR(MAX),
+        [ETHNIC_GROUP_CODE] NVARCHAR(MAX),
+        [ETHNIC_GROUP_CODE_SYSTEM] NVARCHAR(MAX),
+        [ETHNIC_GROUP_CODE_SYSTEM_NAME] NVARCHAR(MAX),
+        [ETHNIC_GROUP_DISPLAY_NAME] NVARCHAR(MAX),
+        [GUARDIAN_ADDR_USE] NVARCHAR(MAX),
+        [GUARDIAN_STREET_ADDRESS_LINE] NVARCHAR(MAX),
+        [GUARDIAN_CITY] NVARCHAR(MAX),
+        [GUARDIAN_STATE] NVARCHAR(MAX),
+        [GUARDIAN_POSTAL_CODE] NVARCHAR(MAX),
+        [GUARDIAN_COUNTRY] NVARCHAR(MAX),
+        [GUARDIAN_TELECOM_HP] NVARCHAR(MAX),
+        [GUARDIAN_TELECOM_EMAIL] NVARCHAR(MAX),
+        [GUARDIAN_PERSON_NAME_L_GIVEN] NVARCHAR(MAX),
+        [GUARDIAN_PERSON_NAME_L_GIVEN_QUALIFIER] NVARCHAR(MAX),
+        [GUARDIAN_PERSON_NAME_L_FAMILY] NVARCHAR(MAX),
+        [GUARDIAN_PERSON_NAME_L_FAMILY_QUALIFIER] NVARCHAR(MAX),
+        [LANGUAGE_CODE] NVARCHAR(MAX),
+        [MODE_CODE] NVARCHAR(MAX),
+        [MODE_CODE_SYSTEM] NVARCHAR(MAX),
+        [MODE_CODE_SYSTEM_NAME] NVARCHAR(MAX),
+        [MODE_DISPLAY_NAME] NVARCHAR(MAX),
+        [PROFICIENCY_LEVEL_CODE] NVARCHAR(MAX),
+        [PROFICIENCY_LEVEL_CODE_SYSTEM] NVARCHAR(MAX),
+        [PROFICIENCY_LEVEL_CODE_SYSTEM_NAME] NVARCHAR(MAX),
+        [PROFICIENCY_DISPLAY_NAME] NVARCHAR(MAX),
+        [PREFERENCE_IND] NVARCHAR(MAX),
+        [FILE_NAME] NVARCHAR(MAX),
+        [INSERT_DATETIME] NVARCHAR(MAX)
+    )
+END
+""")
+
+# Ensure all columns from DataFrame are present in the table
+add_missing_columns(cursor, schema, table_name, df_record_target.columns)
+
+# Truncate the table if it has rows
+cursor.execute(f"""
+IF EXISTS (SELECT 1 FROM [{schema}].[{table_name}])
+BEGIN
+    TRUNCATE TABLE [{schema}].[{table_name}]
+END
+""")
+
+# Dynamically generate the insert statement based on DataFrame columns
+columns_str = ', '.join(f'[{col}]' for col in df_record_target.columns)
+values_str = ', '.join('?' for _ in df_record_target.columns)
+
+insert_sql = f"""
+INSERT INTO [{schema}].[{table_name}] ({columns_str})
+VALUES ({values_str})
+"""
+
+# Insert DataFrame to SQL Server
+for index, row in df_record_target.iterrows():
+    cursor.execute(insert_sql, tuple(row))
+
+# Commit the transaction
+conn.commit()
+
+# Close the connection
+conn.close()
+
+print('\nData written to SQL Server successfully.')

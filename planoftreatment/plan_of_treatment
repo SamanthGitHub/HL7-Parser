@@ -1,0 +1,62 @@
+import xml.etree.ElementTree as ET
+import pandas as pd
+from datetime import datetime
+from tabulate import tabulate
+
+# Load the XML from the specified file path
+tree = ET.parse('G:/samanth473_drive/CDP/CDA-phcaserpt-1.3.0-CDA-phcaserpt-1.3.1/examples/samples/CDAR2_IG_PHCASERPT_R2_STU3.1_SAMPLE.xml')
+root = tree.getroot()
+
+# Define the namespace map
+namespaces = {
+    'voc': 'http://www.lantanagroup.com/voc',
+    'hl7': 'urn:hl7-org:v3',
+    'sdtc': 'urn:hl7-org:sdtc',
+    'xsi': 'http://www.w3.org/2001/XMLSchema-instance'
+}
+
+# Function to extract the full text content, handling <br> tags
+def get_full_text(element):
+    text = []
+    if element is not None:
+        if element.text:
+            text.append(element.text)
+        for sub_element in element:
+            if sub_element.tag == '{urn:hl7-org:v3}br':
+                text.append('_')
+            if sub_element.tail:
+                text.append(sub_element.tail)
+    return ''.join(text).strip()
+
+# Extract the section with the title "Plan of Treatment"
+df_html_table = None
+for section in root.findall('.//hl7:section', namespaces):
+    title_element = section.find('.//hl7:title', namespaces)
+    if title_element is not None and title_element.text == "Plan of Treatment":
+        # Extract the HTML table data within the <text> element
+        html_table = section.find('.//hl7:text/hl7:table', namespaces)
+        if html_table is not None:
+            headers = [get_full_text(th) for th in html_table.findall('.//hl7:thead/hl7:tr/hl7:th', namespaces)]
+            table_data = []
+            for row in html_table.findall('.//hl7:tbody/hl7:tr', namespaces):
+                row_data = [get_full_text(td) for td in row.findall('hl7:td', namespaces)]
+                table_data.append(row_data)
+            df_html_table = pd.DataFrame(table_data, columns=headers)
+            # Rename columns to the desired format
+            df_html_table.columns = df_html_table.columns.str.replace(' ', '_').str.replace('__', '_').str.upper()
+            break
+
+if df_html_table is not None:
+    # Generate the current timestamp
+    current_time = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    # Define the file path for the CSV file with the timestamp
+    csv_file_path = f'G:/samanth473_drive/Parse/Result/CDA_plan_of_treatment_table_{current_time}.csv'
+
+    # Save the DataFrame as a CSV file
+    df_html_table.to_csv(csv_file_path, index=False)
+
+    # Print the DataFrame as a formatted table
+    print(tabulate(df_html_table, headers='keys', tablefmt='pretty'))
+else:
+    print("No table found in the 'Plan of Treatment' section.")

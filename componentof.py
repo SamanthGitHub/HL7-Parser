@@ -1,9 +1,17 @@
 import xml.etree.ElementTree as ET
 import pandas as pd
 from datetime import datetime
+import os
+import pyodbc
 
-# Load the XML from the specified file path
-tree = ET.parse('G:/samanth473_drive/CDP/CDA-phcaserpt-1.3.0-CDA-phcaserpt-1.3.1/examples/samples/CDAR2_IG_PHCASERPT_R2_STU3.1_SAMPLE.xml')
+# Define the file path
+file_path = 'G:/samanth473_drive/CDP/CDA-phcaserpt-1.3.0-CDA-phcaserpt-1.3.1/examples/samples/CDAR2_IG_PHCASERPT_R2_STU3.1_SAMPLE.xml'
+
+# Extract the file name from the file path
+file_name = os.path.basename(file_path)
+
+# Load and parse the XML file
+tree = ET.parse(file_path)
 root = tree.getroot()
 
 # Define the namespace map
@@ -188,20 +196,132 @@ component_of_data = {
     "SERVICE_PROVIDER_CITY": service_provider_city,
     "SERVICE_PROVIDER_STATE": service_provider_state,
     "SERVICE_PROVIDER_POSTAL_CODE": service_provider_postal_code,
-    "SERVICE_PROVIDER_COUNTRY": service_provider_country
+    "SERVICE_PROVIDER_COUNTRY": service_provider_country,
+    "FILE_NAME": file_name,
+    "INSERT_DATETIME": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 }
 
 # Create a DataFrame for the componentOf section
 df_component_of = pd.DataFrame([component_of_data])
 
-# Get the current date and time
-current_time = datetime.now().strftime("%Y%m%d%H%M%S")
-
-# Define the file path for the componentOf section with the timestamp
-csv_file_path_component_of = f'G:/samanth473_drive/Parse/Result/CDA_component_of_{current_time}.csv'
-
-# Save the DataFrame for the componentOf section as a CSV file
-df_component_of.to_csv(csv_file_path_component_of, index=False)
-
-# Display the DataFrame for the componentOf section
+# Print the DataFrame
 print(df_component_of)
+
+# Define SQL Server connection details
+server = 'Samanth'
+database = 'ClinicalDocument'
+schema = 'cdg'
+table_name = 'ComponentOf'
+
+# Establish connection to SQL Server
+conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={database};Trusted_Connection=yes;')
+cursor = conn.cursor()
+
+# Function to get the current columns of a table
+def get_current_columns(cursor, schema, table_name):
+    cursor.execute(f"""
+    SELECT COLUMN_NAME 
+    FROM INFORMATION_SCHEMA.COLUMNS 
+    WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table_name}'
+    """)
+    return [row.COLUMN_NAME for row in cursor.fetchall()]
+
+# Function to add missing columns to the table
+def add_missing_columns(cursor, schema, table_name, columns):
+    existing_columns = get_current_columns(cursor, schema, table_name)
+    for column in columns:
+        if column not in existing_columns:
+            cursor.execute(f"ALTER TABLE [{schema}].[{table_name}] ADD [{column}] NVARCHAR(MAX)")
+
+# Check if table exists, create if not
+cursor.execute(f"""
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES 
+               WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table_name}')
+BEGIN
+    CREATE TABLE [{schema}].[{table_name}] (
+        [ID] INT IDENTITY(1,1) PRIMARY KEY,
+        [ENCOUNTER_ID_EXTENSION] NVARCHAR(MAX),
+        [ENCOUNTER_ID_ROOT] NVARCHAR(MAX),
+        [ENCOUNTER_CODE_CODE] NVARCHAR(MAX),
+        [ENCOUNTER_CODE_CODE_SYSTEM] NVARCHAR(MAX),
+        [ENCOUNTER_CODE_CODE_SYSTEM_NAME] NVARCHAR(MAX),
+        [ENCOUNTER_CODE_DISPLAY_NAME] NVARCHAR(MAX),
+        [EFFECTIVE_TIME_LOW] NVARCHAR(MAX),
+        [EFFECTIVE_TIME_HIGH] NVARCHAR(MAX),
+        [PROVIDER_ID_EXTENSION] NVARCHAR(MAX),
+        [PROVIDER_ID_ROOT] NVARCHAR(MAX),
+        [PROVIDER_STREET_ADDRESS_LINE] NVARCHAR(MAX),
+        [PROVIDER_CITY] NVARCHAR(MAX),
+        [PROVIDER_STATE] NVARCHAR(MAX),
+        [PROVIDER_POSTAL_CODE] NVARCHAR(MAX),
+        [PROVIDER_COUNTRY] NVARCHAR(MAX),
+        [PROVIDER_TELECOM_WP_PHONE] NVARCHAR(MAX),
+        [PROVIDER_TELECOM_WP_FAX] NVARCHAR(MAX),
+        [PROVIDER_TELECOM_WP_EMAIL] NVARCHAR(MAX),
+        [PROVIDER_TELECOM_HP] NVARCHAR(MAX),
+        [PROVIDER_GIVEN] NVARCHAR(MAX),
+        [PROVIDER_FAMILY] NVARCHAR(MAX),
+        [PROVIDER_SUFFIX] NVARCHAR(MAX),
+        [PROVIDER_SUFFIX_QUALIFIER] NVARCHAR(MAX),
+        [ORG_NAME] NVARCHAR(MAX),
+        [ORG_STREET_ADDRESS_LINE] NVARCHAR(MAX),
+        [ORG_CITY] NVARCHAR(MAX),
+        [ORG_STATE] NVARCHAR(MAX),
+        [ORG_POSTAL_CODE] NVARCHAR(MAX),
+        [ORG_COUNTRY] NVARCHAR(MAX),
+        [FACILITY_ID_EXTENSION] NVARCHAR(MAX),
+        [FACILITY_ID_ROOT] NVARCHAR(MAX),
+        [FACILITY_CODE_CODE] NVARCHAR(MAX),
+        [FACILITY_CODE_CODE_SYSTEM] NVARCHAR(MAX),
+        [FACILITY_CODE_DISPLAY_NAME] NVARCHAR(MAX),
+        [FACILITY_STREET_ADDRESS_LINE] NVARCHAR(MAX),
+        [FACILITY_CITY] NVARCHAR(MAX),
+        [FACILITY_STATE] NVARCHAR(MAX),
+        [FACILITY_POSTAL_CODE] NVARCHAR(MAX),
+        [FACILITY_COUNTRY] NVARCHAR(MAX),
+        [SERVICE_PROVIDER_NAME] NVARCHAR(MAX),
+        [SERVICE_PROVIDER_TELECOM_WP_PHONE] NVARCHAR(MAX),
+        [SERVICE_PROVIDER_TELECOM_WP_FAX] NVARCHAR(MAX),
+        [SERVICE_PROVIDER_TELECOM_WP_EMAIL] NVARCHAR(MAX),
+        [SERVICE_PROVIDER_STREET_ADDRESS_LINE] NVARCHAR(MAX),
+        [SERVICE_PROVIDER_CITY] NVARCHAR(MAX),
+        [SERVICE_PROVIDER_STATE] NVARCHAR(MAX),
+        [SERVICE_PROVIDER_POSTAL_CODE] NVARCHAR(MAX),
+        [SERVICE_PROVIDER_COUNTRY] NVARCHAR(MAX),
+        [FILE_NAME] NVARCHAR(MAX),
+        [INSERT_DATETIME] NVARCHAR(MAX)
+    )
+END
+""")
+
+# Ensure all columns from DataFrame are present in the table
+add_missing_columns(cursor, schema, table_name, df_component_of.columns)
+
+# Truncate the table if it has rows
+cursor.execute(f"""
+IF EXISTS (SELECT 1 FROM [{schema}].[{table_name}])
+BEGIN
+    TRUNCATE TABLE [{schema}].[{table_name}]
+END
+""")
+
+# Dynamically generate the insert statement based on DataFrame columns
+columns_str = ', '.join(f'[{col}]' for col in df_component_of.columns)
+values_str = ', '.join('?' for _ in df_component_of.columns)
+
+insert_sql = f"""
+INSERT INTO [{schema}].[{table_name}] ({columns_str})
+VALUES ({values_str})
+"""
+
+# Insert DataFrame to SQL Server
+for index, row in df_component_of.iterrows():
+    cursor.execute(insert_sql, tuple(row))
+
+# Commit the transaction
+conn.commit()
+
+# Close the connection
+conn.close()
+
+print('\nData written to SQL Server successfully.')
